@@ -18,11 +18,12 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to DockerHub
-        if: github.event_name != 'pull_request'  # PR时不登录
+        if: github.event_name != 'pull_request'  # 仅在非PR事件时登录
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}  # 必须提供用户名
+          password: ${{ secrets.DOCKERHUB_TOKEN }}      # 必须提供令牌/密码
+          logout: true  # 可选，结束后登出
 
       - name: Extract metadata
         id: meta
