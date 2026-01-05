@@ -12,7 +12,7 @@ jobs:
       - name: Checkout your repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}  # 用于推送代码到你的仓库
+          token: ${{ secrets.PAT_TOKEN }}  # 用于推送代码到你的仓库
 
       - name: Get latest Fava tag from GitHub
         id: get_latest_tag
