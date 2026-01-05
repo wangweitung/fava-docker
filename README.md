@@ -2,4 +2,4 @@
 
 添加了以下组件
 1. fava-dashboards
-2. 
+2. fava-envelope
