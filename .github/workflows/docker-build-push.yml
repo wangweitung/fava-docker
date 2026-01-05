@@ -29,7 +29,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: your-dockerhub-username/fava  # 替换为你的DockerHub仓库名
+          images: wangweitung/fava-docker  # 替换为你的DockerHub仓库名
 
       - name: Build and push
         uses: docker/build-push-action@v5
