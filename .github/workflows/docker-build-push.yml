@@ -1,48 +1,78 @@
-name: Build and Push Docker Image
+name: Check Fava Updates and Push Docker
 
 on:
-  push:
-    branches: [ main ]  # 当main分支有推送时触发
-    tags: [ 'v*' ]      # 当打标签时触发（如v1.0.0）
-  pull_request:
-    branches: [ main ]  # PR到main分支时也触发（可选）
+  schedule:
+    - cron: "0 0 * * *"  # 每天 UTC 0 点运行
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
-  build:
+  check-update:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout your repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}  # 用于推送代码到你的仓库
 
-      - name: Extract Fava version from Dockerfile
-        id: extract_version
+      - name: Get latest Fava tag from GitHub
+        id: get_latest_tag
         run: |
-          # 从Dockerfile中提取fava版本号（匹配fava==x.y.z格式）
-          VERSION=$(grep -oP 'fava==\K\d+\.\d+\.\d+' Dockerfile)
-          echo "fava_version=$VERSION" >> $GITHUB_OUTPUT
-          echo "提取到的Fava版本: $VERSION"
+          # 获取 beancount/fava 仓库的最新 tag
+          LATEST_TAG=$(curl -s https://api.github.com/repos/beancount/fava/tags | jq -r '.[0].name')
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          # 打印获取到的版本号
+          echo "Latest Fava tag: $LATEST_TAG"
+
+      - name: Check if version changed
+        id: check_change
+        run: |
+          # 读取本地记录的最新版本（若文件不存在则初始化为空）
+          if [ -f "FAVA_VERSION" ]; then
+            CURRENT_VERSION=$(cat FAVA_VERSION)
+          else
+            CURRENT_VERSION=""
+          fi
+          # 对比远程最新版本和本地版本
+          if [ "${{ steps.get_latest_tag.outputs.latest_tag }}" != "$CURRENT_VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update repository if version changed
+        if: steps.check_change.outputs.changed == 'true'
+        run: |
+          # 更新本地版本记录文件
+          echo "${{ steps.get_latest_tag.outputs.latest_tag }}" > FAVA_VERSION
+          # （可选）同步 fava 的代码或修改你的项目中依赖的版本号
+          # 例如：sed -i "s/FAVA_VERSION=.*/FAVA_VERSION=${{ steps.get_latest_tag.outputs.latest_tag }}/" Dockerfile
+
+      - name: Commit and push changes
+        if: steps.check_change.outputs.changed == 'true'
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add FAVA_VERSION  # 若有其他文件修改，需一并添加
+          git commit -m "Update Fava to ${{ steps.get_latest_tag.outputs.latest_tag }}"
+          git push origin main  # 替换为你的主分支名称（如 main/master）
 
       - name: Set up Docker Buildx
+        if: steps.check_change.outputs.changed == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Login to DockerHub
-        if: github.event_name != 'pull_request'  # 仅在非PR事件时登录
+        if: steps.check_change.outputs.changed == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          logout: true
+          password: ${{ secrets.DOCKERHUB_TOKEN }}  # 在 DockerHub 生成的访问令牌
 
-      - name: Build and push
+      - name: Build and push Docker image
+        if: steps.check_change.outputs.changed == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}  # PR时不推送
-          # 同时推送版本标签和latest标签
+          push: true
           tags: |
-            wangweitung/fava-docker:${{ steps.extract_version.outputs.fava_version }}
-            wangweitung/fava-docker:latest
-          labels: |
-            org.opencontainers.image.version=${{ steps.extract_version.outputs.fava_version }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=${{ github.repositoryUrl }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/your-image-name:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/your-image-name:${{ steps.get_latest_tag.outputs.latest_tag }}
