@@ -17,10 +17,9 @@ jobs:
       - name: Get latest Fava tag from GitHub
         id: get_latest_tag
         run: |
-          # 获取 beancount/fava 仓库的最新 tag
-          LATEST_TAG=$(curl -s https://api.github.com/repos/beancount/fava/tags | jq -r '.[0].name')
+          # 获取 beancount/fava 仓库的最新 tag（去除可能的 'v' 前缀，如 v1.30.9 → 1.30.9）
+          LATEST_TAG=$(curl -s https://api.github.com/repos/beancount/fava/tags | jq -r '.[0].name' | sed 's/^v//')
           echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-          # 打印获取到的版本号
           echo "Latest Fava tag: $LATEST_TAG"
 
       - name: Check if version changed
@@ -44,15 +43,16 @@ jobs:
         run: |
           # 更新本地版本记录文件
           echo "${{ steps.get_latest_tag.outputs.latest_tag }}" > FAVA_VERSION
-          # （可选）同步 fava 的代码或修改你的项目中依赖的版本号
-          # 例如：sed -i "s/FAVA_VERSION=.*/FAVA_VERSION=${{ steps.get_latest_tag.outputs.latest_tag }}/" Dockerfile
+          # 关键：修改 Dockerfile 中的 fava 版本号（匹配 fava==x.y.z 格式）
+          sed -i "s/fava==[0-9]\+\.[0-9]\+\.[0-9]\+/fava==${{ steps.get_latest_tag.outputs.latest_tag }}/" Dockerfile
+          echo "已将 Dockerfile 中的 Fava 版本更新为 ${{ steps.get_latest_tag.outputs.latest_tag }}"
 
       - name: Commit and push changes
         if: steps.check_change.outputs.changed == 'true'
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add FAVA_VERSION  # 若有其他文件修改，需一并添加
+          git add FAVA_VERSION Dockerfile  # 同时提交版本记录文件和修改后的 Dockerfile
           git commit -m "Update Fava to ${{ steps.get_latest_tag.outputs.latest_tag }}"
           git push origin main  # 替换为你的主分支名称（如 main/master）
 
@@ -74,5 +74,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/your-image-name:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/your-image-name:${{ steps.get_latest_tag.outputs.latest_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/fava-docker:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/fava-docker:${{ steps.get_latest_tag.outputs.latest_tag }}
