@@ -7,7 +7,7 @@
 
 
 ### 用法
-创建docker-compose文件
+1. 创建docker-compose文件
 
 ```yml
 version: "3"
@@ -25,3 +25,9 @@ services:
         labels:
             - "com.centurylinklabs.watchtower.enable=true"
 ```
+2. 启动
+```bash
+sudo docker compose up -d
+```
+3. 访问：
+http://ip:1100
