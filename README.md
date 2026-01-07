@@ -9,7 +9,7 @@
 ### 用法
 创建docker-compose文件
 
-```
+```yml
 version: "3"
 services:
     fava:
