@@ -51,14 +51,18 @@ jobs:
           echo "已将 Dockerfile 中的 Fava 版本更新为 ${{ steps.get_latest_tag.outputs.latest_tag }}"
 
       - name: Commit and push changes (for schedule trigger with version change, or manual trigger)
-        # 条件：1. 定时触发且版本变更  或  2. 手动触发
         if: (github.event_name == 'schedule' && steps.check_change.outputs.changed == 'true') || github.event_name == 'workflow_dispatch'
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git add FAVA_VERSION Dockerfile  # 同时提交版本记录文件和修改后的 Dockerfile
-          git commit -m "Update Fava to ${{ steps.get_latest_tag.outputs.latest_tag }}"
-          git push origin main  # 替换为你的主分支名称（如 main/master）
+          # 核心优化：使用 git commit --allow-empty-message 配合条件判断，无变更时跳过
+          if git commit -m "Update Fava to ${{ steps.get_latest_tag.outputs.latest_tag }}"; then
+            echo "存在文件变更，执行推送操作"
+            git push origin main  # 替换为你的主分支名称（如 main/master）
+          else
+            echo "无文件变更，跳过 commit 和 push 操作"
+          fi
 
       - name: Set up Docker Buildx (for schedule trigger with version change, or manual trigger)
         # 条件：1. 定时触发且版本变更  或  2. 手动触发
