@@ -1,5 +1,5 @@
 #FROM python:3.11.4-bookworm
-FROM python:3.13-bookworm
+FROM python:3.13.11-trixie
 
 
 RUN apt update && apt install python3-dev -y
