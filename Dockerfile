@@ -1,4 +1,5 @@
-FROM python:3.11.4-bookworm
+#FROM python:3.11.4-bookworm
+FROM python:3.14.2-bookworm
 
 
 RUN apt update && apt install python3-dev -y
