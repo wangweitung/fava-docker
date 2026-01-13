@@ -5,6 +5,8 @@
 2. fava-envelope
 3. beanprice
 
+### 更新频率
+每天检查fava版本，如果有更新则自动构建镜像并推送至dockerhub。
 
 ### 用法
 1. 创建docker-compose文件
