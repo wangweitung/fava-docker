@@ -12,73 +12,82 @@ jobs:
       - name: Checkout your repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT_TOKEN }}  # 用于推送代码到你的仓库
+          token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Get latest Fava tag from GitHub
+      - name: Get latest Fava tag from GitHub (with fallback)
         id: get_latest_tag
         run: |
-          # 获取 beancount/fava 仓库的最新 tag（去除可能的 'v' 前缀，如 v1.30.9 → 1.30.9）
-          LATEST_TAG=$(curl -s https://api.github.com/repos/beancount/fava/tags | jq -r '.[0].name' | sed 's/^v//')
+          # 修复1：增加容错，API 失败时直接终止流程
+          RESPONSE=$(curl -s -w "%{http_code}" https://api.github.com/repos/beancount/fava/tags)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          TAG_CONTENT=$(echo "$RESPONSE" | head -n -1)
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Error: GitHub API 返回状态码 $HTTP_CODE，内容：$TAG_CONTENT"
+            exit 1
+          fi
+          
+          # 修复2：兼容带/不带 v 前缀，且过滤非语义化版本的 Tag
+          LATEST_TAG=$(echo "$TAG_CONTENT" | jq -r '.[].name | select(test("^v?\\d+\\.\\d+\\.\\d+$")) | sub("^v"; "")' | head -n1)
+          
+          # 验证版本是否有效
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            echo "Error: 未获取到有效的 Fava 版本号"
+            exit 1
+          fi
+          
           echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
           echo "Latest Fava tag: $LATEST_TAG"
 
       - name: Check if version changed (only for schedule trigger)
         id: check_change
-        # 仅当触发方式为 schedule 时，执行版本对比逻辑
         if: github.event_name == 'schedule'
         run: |
-          # 读取本地记录的最新版本（若文件不存在则初始化为空）
+          CURRENT_VERSION=""
           if [ -f "FAVA_VERSION" ]; then
-            CURRENT_VERSION=$(cat FAVA_VERSION)
-          else
-            CURRENT_VERSION=""
+            CURRENT_VERSION=$(cat FAVA_VERSION | tr -d ' \n')  # 去除空格/换行
           fi
-          # 对比远程最新版本和本地版本
-          if [ "${{ steps.get_latest_tag.outputs.latest_tag }}" != "$CURRENT_VERSION" ]; then
+          
+          # 修复4：空版本时仅当远程版本有效才判定变更
+          if [ "${{ steps.get_latest_tag.outputs.latest_tag }}" != "$CURRENT_VERSION" ] && [ -n "${{ steps.get_latest_tag.outputs.latest_tag }}" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Update repository (for schedule trigger with version change, or manual trigger)
-        # 条件：1. 定时触发且版本变更  或  2. 手动触发
         if: (github.event_name == 'schedule' && steps.check_change.outputs.changed == 'true') || github.event_name == 'workflow_dispatch'
         run: |
-          # 更新本地版本记录文件
           echo "${{ steps.get_latest_tag.outputs.latest_tag }}" > FAVA_VERSION
-          # 关键：修改 Dockerfile 中的 fava 版本号（匹配 fava==x.y.z 格式）
-          sed -i "s/fava==[0-9]\+\.[0-9]\+\.[0-9]\+/fava==${{ steps.get_latest_tag.outputs.latest_tag }}/" Dockerfile
+          # 修复3：优化正则，匹配任意 fava==xxx 格式（包括无版本、两位/三位版本）
+          sed -i -E "s/fava==[^ ]*/fava==${{ steps.get_latest_tag.outputs.latest_tag }}/" Dockerfile
           echo "已将 Dockerfile 中的 Fava 版本更新为 ${{ steps.get_latest_tag.outputs.latest_tag }}"
 
-      - name: Commit and push changes (for schedule trigger with version change, or manual trigger)
+      - name: Commit and push changes
         if: (github.event_name == 'schedule' && steps.check_change.outputs.changed == 'true') || github.event_name == 'workflow_dispatch'
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add FAVA_VERSION Dockerfile  # 同时提交版本记录文件和修改后的 Dockerfile
-          # 核心优化：使用 git commit --allow-empty-message 配合条件判断，无变更时跳过
+          git add FAVA_VERSION Dockerfile
           if git commit -m "Update Fava to ${{ steps.get_latest_tag.outputs.latest_tag }}"; then
             echo "存在文件变更，执行推送操作"
-            git push origin main  # 替换为你的主分支名称（如 main/master）
+            git push origin main  # 替换为你的分支名（main/master）
           else
-            echo "无文件变更，跳过 commit 和 push 操作"
+            echo "无文件变更，跳过推送"
           fi
 
-      - name: Set up Docker Buildx (for schedule trigger with version change, or manual trigger)
-        # 条件：1. 定时触发且版本变更  或  2. 手动触发
+      - name: Set up Docker Buildx
         if: (github.event_name == 'schedule' && steps.check_change.outputs.changed == 'true') || github.event_name == 'workflow_dispatch'
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to DockerHub (for schedule trigger with version change, or manual trigger)
-        # 条件：1. 定时触发且版本变更  或  2. 手动触发
+      - name: Login to DockerHub
         if: (github.event_name == 'schedule' && steps.check_change.outputs.changed == 'true') || github.event_name == 'workflow_dispatch'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}  # 在 DockerHub 生成的访问令牌
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Docker image (for schedule trigger with version change, or manual trigger)
-        # 条件：1. 定时触发且版本变更  或  2. 手动触发
+      - name: Build and push Docker image
         if: (github.event_name == 'schedule' && steps.check_change.outputs.changed == 'true') || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v5
         with:
